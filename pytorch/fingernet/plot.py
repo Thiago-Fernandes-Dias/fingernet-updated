@@ -200,6 +200,8 @@ def plot_from_output_folder(
 
     # 3. Imagem melhorada + minúcias
     plot_enhanced(axes[2], enhanced_image)
+    # Convert to rad minutiae[:, 2]
+    minutiae[:, 2] = np.deg2rad(minutiae[:, 2])
     plot_mnt(axes[2], minutiae)
     axes[2].set_title(f"Minúcias Detectadas ({len(minutiae)})")
 

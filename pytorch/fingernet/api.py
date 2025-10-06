@@ -28,8 +28,15 @@ def save_results(result_item: dict, output_path: str):
     # --- Salva cada componente em seu respectivo subdiretório ---
 
     # Salvar minúcias (.txt)
+    minutiae = result_item['minutiae'].copy()
+    # Se a tupla result_item tiver a flag 'mnt_degrees' convertê-la
+    if result_item.get('mnt_degrees', False):
+        # ângulo em radianos -> graus
+        minutiae = minutiae.copy()
+        minutiae[:, 2] = np.round(np.rad2deg(minutiae[:, 2]), 2)
+
     minutiae_path = os.path.join(output_path, 'minutiae', f"{base_name}.txt")
-    np.savetxt(minutiae_path, result_item['minutiae'], fmt=['%.0f', '%.0f', '%.6f', '%.6f'], header='x, y, angle, score', delimiter=',')
+    np.savetxt(minutiae_path, minutiae, fmt=['%.0f', '%.0f', '%.6f', '%.6f'], header='x, y, angle, score', delimiter=',')
 
     # Salvar imagem melhorada (.png)
     enhanced_path = os.path.join(output_path, 'enhanced', original_filename)
@@ -52,9 +59,10 @@ class ResultsSaveCallback(pl.Callback):
     """
     Callback do PyTorch Lightning que gerencia o salvamento dos resultados.
     """
-    def __init__(self, output_path: str):
+    def __init__(self, output_path: str, mnt_degrees: bool = False):
         super().__init__()
         self.output_path = output_path
+        self.mnt_degrees = mnt_degrees
         self.outputs = []
 
     def on_predict_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
@@ -83,6 +91,11 @@ class ResultsSaveCallback(pl.Callback):
         Hook chamado ao final de cada lote de predição para salvar os resultados.
         """
         if outputs:
+            # Tag each result item with the mnt_degrees flag so saving logic knows how to format angles
+            if self.mnt_degrees:
+                for item in outputs:
+                    if isinstance(item, dict):
+                        item['mnt_degrees'] = True
             self.outputs.extend(outputs)
 
     def on_predict_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
@@ -101,7 +114,8 @@ def run_lightning_inference(
     batch_size: int = 1,
     recursive: bool = False,
     num_cores: int = 4,
-    devices: int | list[int] | str = "auto"
+    devices: int | list[int] | str = "auto",
+    mnt_degrees: bool = False,
 ):
     """
     Executa a inferência distribuída com PyTorch Lightning de forma programática.
@@ -127,7 +141,7 @@ def run_lightning_inference(
     model_module = FingerNetLightning(weights_path=weights_path)
     
     # Usa o novo Callback que implementa a lógica de criação de diretórios e salvamento
-    results_saver = ResultsSaveCallback(output_path=output_path)
+    results_saver = ResultsSaveCallback(output_path=output_path, mnt_degrees=mnt_degrees)
 
     strategy = "auto"
     # Lógica para selecionar a estratégia DDP correta para notebooks

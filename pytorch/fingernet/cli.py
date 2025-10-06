@@ -38,6 +38,8 @@ def infer_command(args):
         recursive=args.recursive,
         num_cores=args.num_cores,
         devices=devices
+    ,
+    mnt_degrees=getattr(args, 'mnt_degrees', False)
     )
 
 
@@ -82,6 +84,7 @@ def main():
     infer_parser.add_argument('--num-cores', type=int, default=4, help='Núcleos de CPU para carregar dados.')
     infer_parser.add_argument('--devices', type=str, default='auto', help='GPUs a serem usadas. Ex: "auto", "-1", "[2,3]".')
     infer_parser.add_argument('--recursive', action='store_true', help='Busca por imagens de forma recursiva.')
+    infer_parser.add_argument('--mnt_degrees', action='store_true', help='Exporta os ângulos das minúcias em graus em vez de radianos.')
     infer_parser.set_defaults(func=infer_command)
 
     # --- Subcomando 'plot' (MODIFICADO) ---
