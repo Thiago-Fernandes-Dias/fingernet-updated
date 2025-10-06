@@ -1,100 +1,303 @@
+"""
+FingerNet Command Line Interface.
+Provides intuitive commands for fingerprint analysis.
+"""
 import argparse
-import sys
 import json
 from pathlib import Path
 
-# Importa as funções principais da sua biblioteca
-from fingernet.api import run_lightning_inference
-from fingernet.plot import plot_from_output_folder
+from .api import run_inference, run_enhancement, run_segmentation
+from .plot import plot_from_output_folder
+
+def parse_gpus(gpus_str: str):
+    """
+    Parse GPU specification from string.
+    
+    Examples:
+        "0" -> 0 (CPU)
+        "1" -> 1 (single GPU)
+        "2" -> 2 (2 GPUs: 0,1)
+        "[0,1,2,3]" -> [0,1,2,3] (specific GPUs)
+        
+    Returns:
+        None, int, or list of ints
+    """
+    if gpus_str.lower() == 'none' or gpus_str == '0':
+        return 0
+    
+    try:
+        # Try to parse as integer
+        return int(gpus_str)
+    except ValueError:
+        pass
+    
+    try:
+        # Try to parse as JSON list
+        parsed = json.loads(gpus_str)
+        if isinstance(parsed, list) and all(isinstance(x, int) for x in parsed):
+            return parsed
+        raise ValueError("GPU list must contain only integers")
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid GPU specification: {gpus_str}")
 
 
 def infer_command(args):
-    """
-    Executa a inferência chamando a função da API Python.
-    """
-    # Se não foi fornecido arquivo de saída salva na mesma pasta que a entrada
-    if args.output_path is None:
-        output_path = Path(args.input).parent
-
-    # Converte o argumento de texto para o formato correto (int ou list)
-    try:
-        # Tenta converter para um número inteiro (ex: "1", "-1")
-        devices = int(args.devices)
-    except ValueError:
-        try:
-            # Tenta converter para uma lista (ex: "[2,3]")
-            devices = json.loads(args.devices)
-            if not isinstance(devices, list):
-                raise ValueError
-        except (json.JSONDecodeError, ValueError):
-            # Se falhar, usa como string (ex: "auto")
-            devices = args.devices
-
-    print(f"\n--- Iniciando FingerNet via API ---")
-    run_lightning_inference(
+    """Execute full inference (forward pass)."""
+    gpus = parse_gpus(args.gpus)
+    
+    print(f"\n{'='*70}")
+    print("FingerNet - Full Inference")
+    print(f"{'='*70}")
+    print(f"Input:       {args.input}")
+    print(f"Output:      {args.output}")
+    print(f"GPUs:        {gpus}")
+    print(f"Batch Size:  {args.batch_size} per GPU")
+    print(f"Workers:     {args.cores} per GPU")
+    print(f"Recursive:   {args.recursive}")
+    print(f"Compile:     {args.compile}")
+    print(f"{'='*70}\n")
+    
+    run_inference(
         input_path=args.input,
-        output_path=output_path,
+        output_path=args.output,
+        weights_path=args.weights,
+        gpus=gpus,
         batch_size=args.batch_size,
+        num_workers=args.cores,
         recursive=args.recursive,
-        num_cores=args.num_cores,
-        devices=devices
-    ,
-    mnt_degrees=getattr(args, 'mnt_degrees', False)
+        mnt_degrees=args.degrees,
+        compile_model=args.compile
     )
 
 
+def forward_command(args):
+    """Alias for infer_command."""
+    infer_command(args)
+
+
+def enhance_command(args):
+    """Execute only enhancement."""
+    gpus = parse_gpus(args.gpus)
+    
+    print(f"\n{'='*70}")
+    print("FingerNet - Enhancement Only")
+    print(f"{'='*70}")
+    print(f"Input:       {args.input}")
+    print(f"Output:      {args.output}")
+    print(f"GPUs:        {gpus}")
+    print(f"Batch Size:  {args.batch_size} per GPU")
+    print(f"{'='*70}\n")
+    
+    try:
+        run_enhancement(
+            input_path=args.input,
+            output_path=args.output,
+            weights_path=args.weights,
+            gpus=gpus,
+            batch_size=args.batch_size,
+            recursive=args.recursive
+        )
+    except NotImplementedError as e:
+        print(f"\nError: {e}")
+        print("Falling back to full inference...")
+        run_inference(
+            input_path=args.input,
+            output_path=args.output,
+            weights_path=args.weights,
+            gpus=gpus,
+            batch_size=args.batch_size,
+            num_workers=args.cores,
+            recursive=args.recursive,
+            compile_model=args.compile
+        )
+
+
+def segment_command(args):
+    """Execute only segmentation."""
+    gpus = parse_gpus(args.gpus)
+    
+    print(f"\n{'='*70}")
+    print("FingerNet - Segmentation Only")
+    print(f"{'='*70}")
+    print(f"Input:       {args.input}")
+    print(f"Output:      {args.output}")
+    print(f"GPUs:        {gpus}")
+    print(f"Batch Size:  {args.batch_size} per GPU")
+    print(f"{'='*70}\n")
+    
+    try:
+        run_segmentation(
+            input_path=args.input,
+            output_path=args.output,
+            weights_path=args.weights,
+            gpus=gpus,
+            batch_size=args.batch_size,
+            recursive=args.recursive
+        )
+    except NotImplementedError as e:
+        print(f"\nError: {e}")
+        print("Falling back to full inference...")
+        run_inference(
+            input_path=args.input,
+            output_path=args.output,
+            weights_path=args.weights,
+            gpus=gpus,
+            batch_size=args.batch_size,
+            num_workers=args.cores,
+            recursive=args.recursive,
+            compile_model=args.compile
+        )
+
+
 def plot_command(args):
-    """
-    Plota os resultados de uma imagem específica, lendo da nova estrutura de diretórios.
-    """
-    output_file = args.output_file
-    output_path = args.output_path
-
-    # Se output_path não foi fornecido ou está vazio, usa o diretório atual
-    if not output_path:
-        output_path = "."
-
-    if output_file is None:
-        # Salva a imagem de resumo com um nome descritivo na pasta de saída principal
-        base_name = Path(args.image_filename).stem
-        output_file = Path(output_path) / f"{base_name}_visual_summary.png"
+    """Generate visualization for processed results."""
+    print(f"\n{'='*70}")
+    print("FingerNet - Plot Results")
+    print(f"{'='*70}")
+    print(f"Output Path: {args.output}")
+    print(f"Image:       {args.image}")
     
+    if args.save:
+        print(f"Save To:     {args.save}")
+    print(f"{'='*70}\n")
     
-    # Chama a função de plotagem com os novos argumentos
     plot_from_output_folder(
-        output_path=output_path,
-        image_filename=args.image_filename,
-        save_path=str(output_file)
+        output_path=args.output,
+        image_filename=args.image,
+        save_path=args.save,
+        stride=args.stride
     )
 
 
 def main():
-    """
-    Função principal que configura o argparse e os subcomandos.
-    """
-    parser = argparse.ArgumentParser(prog='fingernet', description='CLI para a biblioteca FingerNet.')
-    subparsers = parser.add_subparsers(dest='command', required=True, help='Comandos disponíveis')
-
-    # --- Subcomando 'infer' (inalterado) ---
-    infer_parser = subparsers.add_parser('infer', help='Executa a inferência em uma imagem ou pasta.')
-    infer_parser.add_argument('input', type=str, help='Caminho para a imagem ou pasta de entrada.')
-    infer_parser.add_argument('--output-path', type=str, default=None, help='Pasta de saída dos resultados.')
-    infer_parser.add_argument('--weights-path', type=str, default=None, help='Caminho para os pesos .pth do modelo.')
-    infer_parser.add_argument('-b', '--batch-size', type=int, default=4, help='Tamanho do lote por GPU.')
-    infer_parser.add_argument('--num-cores', type=int, default=4, help='Núcleos de CPU para carregar dados.')
-    infer_parser.add_argument('--devices', type=str, default='auto', help='GPUs a serem usadas. Ex: "auto", "-1", "[2,3]".')
-    infer_parser.add_argument('--recursive', action='store_true', help='Busca por imagens de forma recursiva.')
-    infer_parser.add_argument('--mnt_degrees', action='store_true', help='Exporta os ângulos das minúcias em graus em vez de radianos.')
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        prog='fingernet',
+        description='FingerNet - Advanced Fingerprint Analysis',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Full inference on single GPU
+  fingernet infer images/ output/ --gpus 1 --batch-size 8
+  
+  # Multi-GPU inference (4 GPUs: 0,1,2,3)
+  fingernet forward images/ output/ --gpus 4 --batch-size 4 --recursive
+  
+  # Specific GPUs
+  fingernet infer images/ output/ --gpus [2,3] --batch-size 8
+  
+  # Enhancement only
+  fingernet enhance images/ output/ --gpus 2
+  
+  # Plot results
+  fingernet plot output/ image.png --save viz.png
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Command to execute')
+    
+    # Common arguments for inference commands
+    def add_inference_args(parser):
+        parser.add_argument('input', type=str, help='Input: image file, directory, or .txt list')
+        parser.add_argument('output', type=str, help='Output directory for results')
+        parser.add_argument(
+            '--gpus', type=str, default='1',
+            help='GPU configuration: "0" (CPU), "1" (single GPU), "2" (2 GPUs), "[0,1,2]" (specific GPUs)'
+        )
+        parser.add_argument(
+            '--weights', type=str, default=None,
+            help='Path to model weights (.pth file). Default: use bundled weights'
+        )
+        parser.add_argument(
+            '-b', '--batch-size', type=int, default=4,
+            help='Batch size per GPU (default: 4)'
+        )
+        parser.add_argument(
+            '--cores', type=int, default=4,
+            help='CPU cores for data loading per GPU (default: 4)'
+        )
+        parser.add_argument(
+            '--recursive', '-r', action='store_true',
+            help='Search for images recursively in directories'
+        )
+        parser.add_argument(
+            '--degrees', action='store_true',
+            help='Save minutiae angles in degrees instead of radians'
+        )
+        parser.add_argument(
+            '--compile', action='store_true',
+            help='Compile model with torch.compile for faster inference (experimental)'
+        )
+    
+    # --- 'infer' command (full inference) ---
+    infer_parser = subparsers.add_parser(
+        'infer',
+        help='Run full inference (all outputs)',
+        description='Execute complete FingerNet inference pipeline'
+    )
+    add_inference_args(infer_parser)
     infer_parser.set_defaults(func=infer_command)
-
-    # --- Subcomando 'plot' (MODIFICADO) ---
-    plot_parser = subparsers.add_parser('plot', help='Gera uma visualização para uma imagem específica a partir da pasta de resultados.')
-    plot_parser.add_argument('output_path', type=str, help='Caminho para a pasta principal de resultados (ex: output/).')
-    plot_parser.add_argument('image_filename', type=str, help='Nome do arquivo da imagem original (ex: 101_1.png).')
-    plot_parser.add_argument('--output-file', type=str, default=None, help='Caminho para salvar a imagem de visualização. (Opcional)')
+    
+    # --- 'forward' command (alias for infer) ---
+    forward_parser = subparsers.add_parser(
+        'forward',
+        help='Run full inference (alias for infer)',
+        description='Execute complete FingerNet inference pipeline (alias for infer)'
+    )
+    add_inference_args(forward_parser)
+    forward_parser.set_defaults(func=forward_command)
+    
+    # --- 'enhance' command ---
+    enhance_parser = subparsers.add_parser(
+        'enhance',
+        help='Run only image enhancement',
+        description='Execute only the enhancement module (faster)'
+    )
+    add_inference_args(enhance_parser)
+    enhance_parser.set_defaults(func=enhance_command)
+    
+    # --- 'segment' command ---
+    segment_parser = subparsers.add_parser(
+        'segment',
+        help='Run only segmentation',
+        description='Execute only the segmentation module (faster)'
+    )
+    add_inference_args(segment_parser)
+    segment_parser.set_defaults(func=segment_command)
+    
+    # --- 'plot' command ---
+    plot_parser = subparsers.add_parser(
+        'plot',
+        help='Visualize inference results',
+        description='Generate visualization from saved results'
+    )
+    plot_parser.add_argument(
+        'output', type=str,
+        help='Output directory containing results (e.g., output/)'
+    )
+    plot_parser.add_argument(
+        'image', type=str,
+        help='Image filename to visualize (e.g., 101_1.png)'
+    )
+    plot_parser.add_argument(
+        '--save', type=str, default=None,
+        help='Path to save visualization (default: show in window)'
+    )
+    plot_parser.add_argument(
+        '--stride', type=int, default=16,
+        help='Stride for orientation field visualization (default: 16)'
+    )
     plot_parser.set_defaults(func=plot_command)
-
+    
+    # Parse and execute
     args = parser.parse_args()
+    
+    # Set default weights path if not provided
+    if hasattr(args, 'weights') and args.weights is None:
+        from .model import DEFAULT_WEIGHTS_PATH
+        args.weights = DEFAULT_WEIGHTS_PATH
+    
+    # Execute command
     if hasattr(args, 'func'):
         args.func(args)
     else:

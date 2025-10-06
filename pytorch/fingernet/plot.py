@@ -4,27 +4,9 @@ from PIL import Image
 import os
 from pathlib import Path
 
-# =================================================================================
-# SEÇÃO 1: FUNÇÕES DE PLOTAGEM INDIVIDUAIS
-# =================================================================================
-
-def plot_input(ax: plt.Axes, image: np.ndarray):
-    """Plota a imagem de entrada em um determinado eixo."""
+def plot_img(ax: plt.Axes, image: np.ndarray):
+    """Plota a imagem em um determinado eixo."""
     ax.imshow(image, cmap='gray')
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-def plot_enhanced(ax: plt.Axes, enhanced_image: np.ndarray):
-    """Plota a imagem melhorada (enhanced) em um determinado eixo."""
-    ax.imshow(enhanced_image, cmap='gray')
-    ax.set_title("Imagem Melhorada")
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-def plot_ori(ax: plt.Axes, orientation_field: np.ndarray):
-    """Plota o campo de orientação como uma imagem em escala de cinza."""
-    ax.imshow(orientation_field, cmap='gray')
-    ax.set_title("Campo de Orientação (Imagem)")
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -69,13 +51,10 @@ def plot_mnt(ax: plt.Axes, minutiae: np.ndarray, r: int = 10):
         markersize=6, 
         markeredgewidth=1
     )
+    
     # Desenha os segmentos de orientação para cada minúcia
     for x, y, angle, score in minutiae:
         ax.plot([x, x + r * np.cos(angle)], [y, y + r * np.sin(angle)], 'r-', linewidth=1.5)
-
-# =================================================================================
-# SEÇÃO 2: FUNÇÃO ORQUESTRADORA PRINCIPAL
-# =================================================================================
 
 def plot_output(
     result: dict,
@@ -109,21 +88,23 @@ def plot_output(
     
     # --- Subplot 1 (Primeira Coluna) ---
     ax1 = axes[0]
-    plot_ori(ax1, orientation_field)
+    plot_img(ax1, orientation_field)
+    ax1.set_title("Campo de Orientação")
 
     # --- Subplot 2 (Segunda Coluna) ---
     ax2 = axes[1]
-    plot_enhanced(ax2, enhanced_image)
+    plot_img(ax2, enhanced_image)
+    ax2.set_title("Imagem Melhorada")
 
     # --- Subplot 3 (Terceira Coluna) ---
     ax3 = axes[2]
-    plot_input(ax3, input_image)
+    plot_img(ax3, input_image)
     plot_ori_field(ax3, orientation_field, stride=stride)
     ax3.set_title(f"Campo de Orientação (Stride: {stride})")
     
     # --- Subplot 4 (Quarta Coluna) ---
     ax4 = axes[3]
-    plot_input(ax4, input_image)
+    plot_img(ax4, input_image)
     plot_mnt(ax4, minutiae)
     ax4.set_title(f"Minúcias Detectadas ({len(minutiae)})")
 
@@ -191,15 +172,16 @@ def plot_from_output_folder(
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
     # 1. Imagem melhorada
-    plot_enhanced(axes[0], enhanced_image)
+    plot_img(axes[0], enhanced_image)
+    axes[0].set_title("Imagem Melhorada")
 
     # 2. Imagem melhorada + campo de orientação
-    plot_enhanced(axes[1], enhanced_image)
+    plot_img(axes[1], enhanced_image)
     plot_ori_field(axes[1], orientation_field, stride=stride)
     axes[1].set_title(f"Campo de Orientação (Stride: {stride})")
 
     # 3. Imagem melhorada + minúcias
-    plot_enhanced(axes[2], enhanced_image)
+    plot_img(axes[2], enhanced_image)
     # Convert to rad minutiae[:, 2]
     minutiae[:, 2] = np.deg2rad(minutiae[:, 2])
     plot_mnt(axes[2], minutiae)

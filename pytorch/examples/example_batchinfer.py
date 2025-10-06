@@ -1,10 +1,16 @@
+import os.path as osp
 
 import fingernet as fnet
-fnet.run_lightning_inference(
-    "/storage/jcontreras/data/datasets/FVC2002Db2A/orig/",
-    "/storage/jcontreras/data/datasets/FVC2002Db2A",
-    batch_size = 12,
-    recursive = True,
-    num_cores = 4,
-    devices = [0,1,2,3]
-)
+
+if __name__ == '__main__':
+    path = "../../datasets/NIST4"
+    fnet.run_inference(
+        input_path=osp.join(path, "orig"),
+        output_path=osp.join(path, "fnet_out"),
+        gpus=[1,2,3],
+        batch_size=16,
+        num_workers=4,
+        recursive=False,
+        mnt_degrees=True,
+        compile_model=True
+    )

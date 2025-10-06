@@ -171,8 +171,6 @@ class MinutiaeHead(nn.Module):
 
         return mnt_o, mnt_w, mnt_h, mnt_s
 
-# --- Classe Principal da Rede ---
-
 class FingerNet(nn.Module):
     """Modelo FingerNet completo, orquestrando a passagem de dados entre os blocos."""
     def __init__(self):
@@ -182,6 +180,22 @@ class FingerNet(nn.Module):
         self.ori_seg_head = OrientationSegmentationHead()
         self.enhancement_module = EnhancementModule()
         self.minutiae_head = MinutiaeHead()
+
+    def segment(self, x: torch.Tensor) -> torch.Tensor:
+        """Retorna apenas o mapa de segmentação."""
+        x_norm = self.img_norm(x)
+        features = self.feature_extractor(x_norm)
+        _, seg_map = self.ori_seg_head(features)
+        upsampled_seg = F.interpolate(nn.functional.softsign(seg_map), scale_factor=8, mode='nearest')
+        return upsampled_seg
+
+    def enhance(self, x: torch.Tensor) -> torch.Tensor:
+        """Retorna apenas a imagem realçada."""
+        x_norm = self.img_norm(x)
+        features = self.feature_extractor(x_norm)
+        ori_map, _ = self.ori_seg_head(features)
+        enh_real, _, _ = self.enhancement_module(x, ori_map)
+        return enh_real
 
     def forward(self, x: torch.Tensor):
         """Define o fluxo de dados e retorna um dicionário com todas as saídas."""
@@ -344,6 +358,19 @@ class FingerNetWrapper(nn.Module):
                 keep[i + 1 + suppress_indices] = False
                 
         return minutiae[keep]
+
+    def segment(self, x: torch.Tensor) -> torch.Tensor:
+        padded_x = self.preprocess(x)
+        with torch.no_grad():
+            seg_map = self.fingernet.segment(padded_x)
+        return seg_map[:, :, :x.shape[2], :x.shape[3]]
+    
+    def enhance(self, x: torch.Tensor) -> torch.Tensor:
+        padded_x = self.preprocess(x)
+        with torch.no_grad():
+            enh_real = self.fingernet.enhance(padded_x)
+        return enh_real[:, :, :x.shape[2], :x.shape[3]]
+
 
 def get_fingernet_core(weights_path: str, device: str, log: bool = True) -> FingerNet:
     """
