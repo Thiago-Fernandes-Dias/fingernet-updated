@@ -86,10 +86,16 @@ def find_image_paths(input_path: str, recursive: bool = False) -> list[str]:
                     if path:
                         image_paths.append(path)
         else:
-            image_paths.append(input_path)
-            
+            # If a single file path was provided
+            single_supported = ['.png', '.wsq', '.bmp']
+            if ext.lower() in single_supported:
+                image_paths.append(input_path)
+            else:
+                raise ValueError(f"Only {single_supported} files are supported for inference (received: {input_path})")
+
     elif os.path.isdir(input_path):
-        extensions = ['png', 'bmp', 'jpg', 'jpeg']
+        # Lock: only search for PNG in directories
+        extensions = ['png', 'bmp']
         for ext in extensions:
             pattern = f"{input_path}/**/*.{ext}" if recursive else f"{input_path}/*.{ext}"
             image_paths.extend(glob.glob(pattern, recursive=recursive))
@@ -174,54 +180,6 @@ def create_output_directories(output_path: str):
     os.makedirs(os.path.join(output_path, 'enhanced'), exist_ok=True)
     os.makedirs(os.path.join(output_path, 'ori'), exist_ok=True)
 
-def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False):
-    """
-    Save inference results to disk in organized structure.
-    
-    Args:
-        result_item: Dictionary with keys 'input_path', 'minutiae', 'enhanced_image', etc.
-        output_path: Base output directory
-        mnt_degrees: If True, save minutiae angles in degrees instead of radians
-    """
-    original_filename = os.path.basename(result_item['input_path'])
-    base_name = os.path.splitext(original_filename)[0]
-
-    # Save minutiae (.txt)
-    minutiae = result_item['minutiae'].copy()
-    if mnt_degrees:
-        minutiae[:, 2] = np.round(np.rad2deg(minutiae[:, 2]), 2)
-    
-    minutiae_path = os.path.join(output_path, 'minutiae', f"{base_name}.txt")
-    np.savetxt(
-        minutiae_path, 
-        minutiae, 
-        fmt=['%.0f', '%.0f', '%.6f', '%.6f'], 
-        header='x, y, angle, score', 
-        delimiter=','
-    )
-
-    # Save enhanced image (.png)
-    enhanced_path = os.path.join(output_path, 'enhanced', original_filename)
-    Image.fromarray(result_item['enhanced_image']).save(enhanced_path)
-
-    # Save mask (.png)
-    mask_path = os.path.join(output_path, 'mask', original_filename)
-    Image.fromarray(result_item['segmentation_mask']).save(mask_path)
-
-    # Save orientation field (encoded as PNG)
-    ori_cpu = result_item['orientation_field']
-    orientation_path = os.path.join(output_path, 'ori', original_filename)
-    angles_deg_shifted = np.round(np.rad2deg(ori_cpu) + 90).astype(np.uint8)
-    Image.fromarray(angles_deg_shifted).save(orientation_path)
-
-
-def create_output_directories(output_path: str):
-    """Create output directory structure."""
-    os.makedirs(os.path.join(output_path, 'minutiae'), exist_ok=True)
-    os.makedirs(os.path.join(output_path, 'mask'), exist_ok=True)
-    os.makedirs(os.path.join(output_path, 'enhanced'), exist_ok=True)
-    os.makedirs(os.path.join(output_path, 'ori'), exist_ok=True)
-
 def setup_ddp(rank: int, world_size: int, timeout_minutes: int = 30):
     """
     Initialize distributed process group.
@@ -239,7 +197,7 @@ def setup_ddp(rank: int, world_size: int, timeout_minutes: int = 30):
     
     # Initialize process group with proper timeout and device_id
     dist.init_process_group(
-        backend='nccl',
+        backend='nccl', # nccl stands for NVIDIA Collective Communications Library
         rank=rank,
         world_size=world_size,
         timeout=timedelta(minutes=timeout_minutes),
@@ -287,14 +245,11 @@ def inference_worker_ddp(
         is_main = (rank == 0)
         
         if is_main:
-            # print(f"\n{'='*60}")
             print(f"Starting Distributed Inference")
-            # print(f"{'='*60}")
             print(f"World Size: {world_size} GPUs")
             print(f"Batch Size per GPU: {batch_size}")
             print(f"Total Images: {len(image_paths)}")
             print(f"Output Path: {output_path}")
-            # print(f"{'='*60}\n")
             
             # Create output directories
             create_output_directories(output_path)
@@ -386,11 +341,9 @@ def inference_worker_ddp(
         # Only rank 0 prints the results
         if is_main:
             total = total_processed.item()
-            print(f"\n{'='*60}")
             print(f"✓ Inference Complete!")
             print(f"  Total images processed: {total}")
             print(f"  Results saved to: {output_path}")
-            print(f"{'='*60}\n")
         
     except Exception as e:
         print(f"[Rank {rank}] Error: {e}")
@@ -424,14 +377,11 @@ def inference_single_gpu(
         mnt_degrees: Save angles in degrees
         compile_model: Whether to compile model
     """
-    print(f"\n{'='*60}")
     print(f"Starting Single GPU Inference")
-    print(f"{'='*60}")
     print(f"Device: cuda:{device_id}")
     print(f"Batch Size: {batch_size}")
     print(f"Total Images: {len(image_paths)}")
     print(f"Output Path: {output_path}")
-    print(f"{'='*60}\n")
     
     # Create output directories
     create_output_directories(output_path)
@@ -482,11 +432,9 @@ def inference_single_gpu(
     for result_item in tqdm(all_results, desc="Saving"):
         save_results(result_item, output_path, mnt_degrees)
     
-    print(f"\n{'='*60}")
     print(f"✓ Inference Complete!")
     print(f"  Total images processed: {len(all_results)}")
     print(f"  Results saved to: {output_path}")
-    print(f"{'='*60}\n")
 
 def run_inference(
     input_path: str,
@@ -496,7 +444,7 @@ def run_inference(
     batch_size: int = 4,
     num_workers: int = 4,
     recursive: bool = False,
-    mnt_degrees: bool = False,
+    mnt_degrees: bool = True,
     compile_model: bool = False
 ):
     """
@@ -581,26 +529,41 @@ def run_inference(
             )
             
     elif isinstance(gpus, list):
-        # Specific GPU IDs with DDP
-        world_size = len(gpus)
-        # Set visible devices
-        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, gpus))
-        mp.spawn(
-            inference_worker_ddp,
-            args=(
-                world_size,
-                image_paths,
-                max_shape,
-                output_path,
-                weights_path,
-                batch_size,
-                num_workers,
-                mnt_degrees,
-                compile_model
-            ),
-            nprocs=world_size,
-            join=True
-        )
+        # Specific GPU IDs with DDP. If the list contains a single GPU id,
+        # run the single-GPU path on that device instead of spawning DDP.
+        if len(gpus) == 1:
+            device_id = gpus[0]
+            inference_single_gpu(
+                device_id=device_id,
+                image_paths=image_paths,
+                target_size=max_shape,
+                output_path=output_path,
+                weights_path=weights_path,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                mnt_degrees=mnt_degrees,
+                compile_model=compile_model
+            )
+        else:
+            world_size = len(gpus)
+            # Set visible devices
+            os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(map(str, gpus))
+            mp.spawn(
+                inference_worker_ddp,
+                args=(
+                    world_size,
+                    image_paths,
+                    max_shape,
+                    output_path,
+                    weights_path,
+                    batch_size,
+                    num_workers,
+                    mnt_degrees,
+                    compile_model
+                ),
+                nprocs=world_size,
+                join=True
+            )
     else:
         raise ValueError(f"Invalid gpus parameter: {gpus}")
 

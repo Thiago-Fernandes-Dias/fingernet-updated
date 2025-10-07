@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 import os
 from pathlib import Path
+import glob
 
 def plot_img(ax: plt.Axes, image: np.ndarray):
     """Plota a imagem em um determinado eixo."""
@@ -131,7 +132,8 @@ def plot_from_output_folder(
     output_path: str, 
     image_filename: str, 
     save_path: str | None = None, 
-    stride: int = 16
+    stride: int = 16,
+    degrees: bool = False
 ):
     """
     Plota os resultados da inferência a partir da nova estrutura de pastas,
@@ -144,15 +146,46 @@ def plot_from_output_folder(
         stride (int): Stride para visualização do campo de orientação.
     """
     print(f"INFO: Gerando visualização para '{image_filename}' a partir de '{output_path}'...")
-    base_name = Path(image_filename).stem
+
+    # Use apenas o basename do nome do ficheiro fornecido pelo usuário.
+    # Isso permite que o usuário passe tanto '100_1.png' quanto 'enhanced/100_1.png'.
+    image_basename = os.path.basename(image_filename)
+    base_name = Path(image_basename).stem
 
     # --- Reconstrói os caminhos dos arquivos com base na nova estrutura ---
-    enhanced_path = os.path.join(output_path, 'enhanced', image_filename)
-    orientation_path = os.path.join(output_path, 'ori', image_filename)
-    minutiae_path = os.path.join(output_path, 'minutiae', f"{base_name}.txt")
+    # Candidate directory name patterns for each artifact group.
+    enhanced_dirs = ['enh*']
+    orientation_dirs = ['ori*', 'orientation*']
+    minutiae_dirs = ['mnt*', 'minutiae*']
+
+    def find_file_by_dir_patterns(base_dir: str, dir_patterns: list[str], filename: str):
+        """Search for filename inside subdirectories of base_dir matching any of dir_patterns.
+
+        Returns the first full path found or None.
+        """
+        # Try exact path relative to base_dir first
+        candidate = os.path.join(base_dir, filename)
+        if os.path.exists(candidate):
+            return candidate
+
+        for pat in dir_patterns:
+            glob_path = os.path.join(base_dir, pat)
+            for match in glob.glob(glob_path):
+                if os.path.isdir(match):
+                    full = os.path.join(match, filename)
+                    if os.path.exists(full):
+                        return full
+        return None
+
+    enhanced_path = find_file_by_dir_patterns(output_path, enhanced_dirs, image_basename)
+    orientation_path = find_file_by_dir_patterns(output_path, orientation_dirs, image_basename)
+    minutiae_path = find_file_by_dir_patterns(output_path, minutiae_dirs, f"{base_name}.txt")
 
     # Verifica se todos os arquivos necessários existem
-    for path in [enhanced_path, orientation_path, minutiae_path]:
+    for name, path in (('enhanced', enhanced_path), ('orientation', orientation_path), ('minutiae', minutiae_path)):
+        if path is None:
+            print(f"ERRO: Não foi possível localizar o arquivo {name} para '{image_basename}' dentro de '{output_path}'.")
+            return
         if not os.path.exists(path):
             print(f"ERRO: Arquivo necessário não encontrado: {path}")
             return
@@ -160,7 +193,9 @@ def plot_from_output_folder(
     # Carrega os dados dos arquivos
     enhanced_image = np.array(Image.open(enhanced_path).convert('L'))
     orientation_img = np.array(Image.open(orientation_path))
+    # orientation_img is stored in degrees in many pipelines; subtract 90 then convert
     orientation_field = np.deg2rad(orientation_img.astype(np.float32) - 90.0)
+
     minutiae = np.loadtxt(minutiae_path, delimiter=',', skiprows=1)
     if minutiae.ndim == 1 and minutiae.size > 0: # Garante que funcione para uma única minúcia
         minutiae = np.expand_dims(minutiae, 0)
@@ -182,8 +217,9 @@ def plot_from_output_folder(
 
     # 3. Imagem melhorada + minúcias
     plot_img(axes[2], enhanced_image)
-    # Convert to rad minutiae[:, 2]
-    minutiae[:, 2] = np.deg2rad(minutiae[:, 2])
+    # Convert minutiae angle column to radians if necessary
+    if degrees:
+        minutiae[:, 2] = np.deg2rad(minutiae[:, 2])
     plot_mnt(axes[2], minutiae)
     axes[2].set_title(f"Minúcias Detectadas ({len(minutiae)})")
 

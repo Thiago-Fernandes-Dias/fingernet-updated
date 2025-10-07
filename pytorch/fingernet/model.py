@@ -227,6 +227,41 @@ class FingerNet(nn.Module):
             'minutiae_y_offset': mnt_h,
             'minutiae_score': mnt_s
         }
+    
+    def time(self, x: torch.Tensor):
+        """Define o fluxo de dados e retorna um dicionário com todas as saídas."""
+        # Etapas do pipeline
+        t1 = time.time()
+        x_norm = self.img_norm(x)
+        t2 = time.time()
+        features = self.feature_extractor(x_norm)
+        t3 = time.time()
+        ori_map, seg_map = self.ori_seg_head(features)
+        t4 = time.time()
+        enh_real, enh_phase, upsampled_ori_map = self.enhancement_module(x, ori_map)
+        t5 = time.time()
+        upsampled_seg = F.interpolate(nn.functional.softsign(seg_map), scale_factor=8, mode='nearest')
+        upsampled_seg_out = F.interpolate(seg_map, scale_factor=8, mode='nearest')
+        minutiae_input = torch.cat([enh_phase, upsampled_seg], dim=1)
+        t6 = time.time()
+        mnt_o, mnt_w, mnt_h, mnt_s = self.minutiae_head(minutiae_input, ori_map)
+        t7 = time.time()
+
+        print(f"ImgNorm: {t2 - t1:.4f}s, FeatExt: {t3 - t2:.4f}s, OriSeg: {t4 - t3:.4f}s, EnhMod: {t5 - t4:.4f}s, MinHead: {t7 - t6:.4f}s, Total= {t7 - t1:.4f}s")
+
+        # Retorna um dicionário com saídas nomeadas para clareza
+        return {
+            'orientation upsample': upsampled_ori_map,
+            'segmentation upsample': upsampled_seg_out,
+            'segmentation': seg_map,
+            'orientation': ori_map,
+            'enhanced_real': enh_real,
+            'enhanced_phase': enh_phase,
+            'minutiae_orientation': mnt_o,
+            'minutiae_x_offset': mnt_w,
+            'minutiae_y_offset': mnt_h,
+            'minutiae_score': mnt_s
+        }
 
 class FingerNetWrapper(nn.Module):
     def __init__(self, model: FingerNet):
@@ -242,6 +277,22 @@ class FingerNetWrapper(nn.Module):
         
         final_outputs = self.postprocess(raw_outputs, threshold=minutiae_threshold)
 
+        return final_outputs
+
+    def time(self, x: torch.Tensor, minutiae_threshold: float = 0.5) -> dict[str, torch.Tensor]:
+        
+        t1 = time.time()
+        padded_x = self.preprocess(x)
+        t2 = time.time()
+
+        with torch.no_grad():
+            raw_outputs = self.fingernet.time(padded_x)
+
+        t3 = time.time()
+        final_outputs = self.postprocess(raw_outputs, threshold=minutiae_threshold)
+        t4 = time.time()
+
+        print(f"Preprocess: {t2 - t1:.4f}s, FingerNet: {t3 - t2:.4f}s, Postprocess: {t4 - t3:.4f}s, Total= {t4 - t1:.4f}s")
         return final_outputs
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
@@ -372,7 +423,7 @@ class FingerNetWrapper(nn.Module):
         return enh_real[:, :, :x.shape[2], :x.shape[3]]
 
 
-def get_fingernet_core(weights_path: str, device: str, log: bool = True) -> FingerNet:
+def get_fingernet_core(weights_path: str = DEFAULT_WEIGHTS_PATH, device: str = DEFAULT_DEVICE, log: bool = True) -> FingerNet:
     """
     Gets the FingerNet model.
     """
@@ -391,6 +442,10 @@ def get_fingernet_core(weights_path: str, device: str, log: bool = True) -> Fing
     fingernet_model.load_state_dict(torch.load(weights_path, map_location=device))
     fingernet_model.eval()
     fingernet_model.to(device)
+
+    if device == "cpu":
+        print("[FingerNet] Movendo o modelo para o formato de memória channels_last...")
+        fingernet_model.to(memory_format=torch.channels_last)
 
     if log: print("\n[FingerNet] Modelo pronto para inferência.")
 
