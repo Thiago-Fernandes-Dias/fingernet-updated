@@ -1,5 +1,10 @@
 # FingerNet: Unified Deep Network for Fingerprint Minutiae Extraction
 
+<div align="center">
+  <img src="fnet.png" alt="FingerNet Architecture" width="600">
+</div>
+
+
 ## Introduction
 
 **FingerNet** is a deep convolutional neural network designed for fingerprint minutiae extraction that successfully combines traditional fingerprint processing domain knowledge with the advanced representation capabilities of deep learning.
