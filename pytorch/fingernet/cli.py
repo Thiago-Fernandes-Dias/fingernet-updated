@@ -51,6 +51,9 @@ def infer_command(args):
     print(f"Workers:     {args.cores} per GPU")
     print(f"Recursive:   {args.recursive}")
     print(f"Compile:     {args.compile}")
+    print(f"Max Dim:     {args.max_dim}")
+    print(f"Strategy:    {args.strategy}")
+    print(f"CPU Workers: {args.cpu_workers}")
     print(f"{'='*70}\n")
     
     run_inference(
@@ -62,94 +65,16 @@ def infer_command(args):
         num_workers=args.cores,
         recursive=args.recursive,
         mnt_degrees=args.degrees,
-        compile_model=args.compile
+        compile_model=args.compile,
+        max_image_dim=args.max_dim,
+        strategy=args.strategy,
+        num_cpu_workers=args.cpu_workers,
     )
 
 
 def forward_command(args):
     """Alias for infer_command."""
     infer_command(args)
-
-
-def enhance_command(args):
-    """Execute only enhancement."""
-    # Lazy import to keep CLI startup snappy
-    from .api import run_enhancement, run_inference
-
-    gpus = parse_gpus(args.gpus)
-    
-    print(f"\n{'='*70}")
-    print("FingerNet - Enhancement Only")
-    print(f"{'='*70}")
-    print(f"Input:       {args.input}")
-    print(f"Output:      {args.output}")
-    print(f"GPUs:        {gpus}")
-    print(f"Batch Size:  {args.batch_size} per GPU")
-    print(f"{'='*70}\n")
-    
-    try:
-        run_enhancement(
-            input_path=args.input,
-            output_path=args.output,
-            weights_path=args.weights,
-            gpus=gpus,
-            batch_size=args.batch_size,
-            recursive=args.recursive
-        )
-    except NotImplementedError as e:
-        print(f"\nError: {e}")
-        print("Falling back to full inference...")
-        run_inference(
-            input_path=args.input,
-            output_path=args.output,
-            weights_path=args.weights,
-            gpus=gpus,
-            batch_size=args.batch_size,
-            num_workers=args.cores,
-            recursive=args.recursive,
-            compile_model=args.compile
-        )
-
-
-def segment_command(args):
-    """Execute only segmentation."""
-    # Lazy import to keep CLI startup snappy
-    from .api import run_segmentation, run_inference
-
-    gpus = parse_gpus(args.gpus)
-    
-    print(f"\n{'='*70}")
-    print("FingerNet - Segmentation Only")
-    print(f"{'='*70}")
-    print(f"Input:       {args.input}")
-    print(f"Output:      {args.output}")
-    print(f"GPUs:        {gpus}")
-    print(f"Batch Size:  {args.batch_size} per GPU")
-    print(f"{'='*70}\n")
-    
-    try:
-        run_segmentation(
-            input_path=args.input,
-            output_path=args.output,
-            weights_path=args.weights,
-            gpus=gpus,
-            batch_size=args.batch_size,
-            recursive=args.recursive
-        )
-    except NotImplementedError as e:
-        print(f"\nError: {e}")
-        print("Falling back to full inference...")
-        run_inference(
-            input_path=args.input,
-            output_path=args.output,
-            weights_path=args.weights,
-            gpus=gpus,
-            batch_size=args.batch_size,
-            num_workers=args.cores,
-            recursive=args.recursive,
-            compile_model=args.compile
-        )
-
 
 def plot_command(args):
     """Generate visualization for processed results."""
@@ -216,6 +141,9 @@ Examples:
         sp.add_argument('--recursive', '-r', action='store_true', help='Search for images recursively in directories')
         sp.add_argument('--degrees', action='store_true', help='Save minutiae angles in degrees instead of radians')
         sp.add_argument('--compile', action='store_true', help='Compile model with torch.compile for faster inference (experimental)')
+        sp.add_argument('--max-dim', type=int, default=1024, help='Maximum dimension (H or W) for an image before resizing (default: 1024)')
+        sp.add_argument('--strategy',  type=str, default='full_gpu', choices=['hybrid', 'full_gpu'], help="Execution strategy: 'hybrid' (GPU infer, CPU post-proc) 'full_gpu' (everything on GPU). (default: full_gpu)")
+        sp.add_argument('--cpu-workers', type=int, default=4, help='Number of CPU threads for post-processing in hybrid mode and for saving results (default: 4)')
 
     if any(h in sys.argv for h in ('-h', '--help')) and not any(cmd in sys.argv for cmd in subcommand_names):
         subparsers_temp = parser.add_subparsers(dest='command', required=False, help='Command to execute')
@@ -259,24 +187,6 @@ Examples:
     )
     add_inference_args(forward_parser)
     forward_parser.set_defaults(func=forward_command)
-    
-    # --- 'enhance' command ---
-    enhance_parser = subparsers.add_parser(
-        'enhance',
-        help='Run only image enhancement',
-        description='Execute only the enhancement module (faster)'
-    )
-    add_inference_args(enhance_parser)
-    enhance_parser.set_defaults(func=enhance_command)
-    
-    # --- 'segment' command ---
-    segment_parser = subparsers.add_parser(
-        'segment',
-        help='Run only segmentation',
-        description='Execute only the segmentation module (faster)'
-    )
-    add_inference_args(segment_parser)
-    segment_parser.set_defaults(func=segment_command)
     
     # --- 'plot' command ---
     plot_parser = subparsers.add_parser(
