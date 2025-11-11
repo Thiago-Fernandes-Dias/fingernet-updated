@@ -139,7 +139,7 @@ def dynamic_padding_collate(batch):
     return batch_tensors, batch_paths, batch_orig_shapes
 
 
-def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False):
+def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False, input_base_path: str = None):
     """
     Save inference results to disk in organized structure.
 
@@ -147,8 +147,21 @@ def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False)
         result_item: Dictionary with keys 'input_path', 'minutiae', 'enhanced_image', etc.
         output_path: Base output directory
         mnt_degrees: If True, save minutiae angles in degrees instead of radians
+        input_base_path: Base path of the input directory to preserve structure
     """
-    original_filename = os.path.basename(result_item["input_path"])
+    input_path = result_item["input_path"]
+    
+    # Calculate relative path from input base if provided
+    if input_base_path and os.path.isdir(input_base_path):
+        # Get relative path from input base to the file
+        rel_path = os.path.relpath(input_path, input_base_path)
+        rel_dir = os.path.dirname(rel_path)
+        original_filename = os.path.basename(rel_path)
+    else:
+        # Fallback to just using the filename (backward compatibility)
+        rel_dir = ""
+        original_filename = os.path.basename(input_path)
+    
     base_name = os.path.splitext(original_filename)[0]
 
     # Save minutiae (.txt)
@@ -156,7 +169,8 @@ def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False)
     if mnt_degrees:
         minutiae[:, 2] = np.round(np.rad2deg(minutiae[:, 2]), 2)
 
-    minutiae_path = os.path.join(output_path, "minutiae", f"{base_name}.txt")
+    minutiae_path = os.path.join(output_path, "minutiae", rel_dir, f"{base_name}.txt")
+    os.makedirs(os.path.dirname(minutiae_path), exist_ok=True)
     np.savetxt(
         minutiae_path,
         minutiae,
@@ -166,16 +180,19 @@ def save_results(result_item: dict, output_path: str, mnt_degrees: bool = False)
     )
 
     # Save enhanced image (.png)
-    enhanced_path = os.path.join(output_path, "enhanced", original_filename)
+    enhanced_path = os.path.join(output_path, "enhanced", rel_dir, original_filename)
+    os.makedirs(os.path.dirname(enhanced_path), exist_ok=True)
     Image.fromarray(result_item["enhanced_image"]).save(enhanced_path)
 
     # Save mask (.png)
-    mask_path = os.path.join(output_path, "mask", original_filename)
+    mask_path = os.path.join(output_path, "mask", rel_dir, original_filename)
+    os.makedirs(os.path.dirname(mask_path), exist_ok=True)
     Image.fromarray(result_item["segmentation_mask"]).save(mask_path)
 
     # Save orientation field (encoded as PNG)
     ori_cpu = result_item["orientation_field"]
-    orientation_path = os.path.join(output_path, "ori", original_filename)
+    orientation_path = os.path.join(output_path, "ori", rel_dir, original_filename)
+    os.makedirs(os.path.dirname(orientation_path), exist_ok=True)
     angles_deg_shifted = np.round(np.rad2deg(ori_cpu) + 90).astype(np.uint8)
     Image.fromarray(angles_deg_shifted).save(orientation_path)
 
@@ -185,7 +202,8 @@ def postprocess_and_save_batch(
     batch_orig_shapes: tuple,
     padded_shape: tuple,
     output_path: str,
-    mnt_degrees: bool
+    mnt_degrees: bool,
+    input_base_path: str = None
 ):
     """Executa pós-processamento e salva os resultados de um lote."""
     worker_id = threading.get_ident()
@@ -216,7 +234,7 @@ def postprocess_and_save_batch(
                 "segmentation_mask": seg_mask,
                 "orientation_field": ori_field,
             }
-            save_results(result_item, output_path, mnt_degrees)
+            save_results(result_item, output_path, mnt_degrees, input_base_path)
 
         
         logger.info(
@@ -314,6 +332,16 @@ def run_inference(
     """
     image_paths = find_image_paths(input_path, recursive)
 
+    # Determine the base path for preserving directory structure
+    # If input_path is a directory, use it as base
+    # If it's a file or list, use its parent directory
+    if os.path.isdir(input_path):
+        input_base_path = input_path
+    elif os.path.isfile(input_path):
+        input_base_path = os.path.dirname(input_path)
+    else:
+        input_base_path = None
+
     # Coleta toda a configuração em um único dicionário para facilitar
     config = locals()
 
@@ -355,7 +383,8 @@ def _save_results_chunk(
     results_chunk: list[dict],
     output_path: str,
     mnt_degrees: bool,
-    worker_rank: int = -1
+    worker_rank: int = -1,
+    input_base_path: str = None
 ):
     """
     Função alvo para um worker thread. Recebe um bloco de resultados e os salva em disco.
@@ -367,7 +396,7 @@ def _save_results_chunk(
     # em paralelo. Apenas iteramos e salvamos.
     for result_item in results_chunk:
         try:
-            save_results(result_item, output_path, mnt_degrees)
+            save_results(result_item, output_path, mnt_degrees, input_base_path)
         except Exception as e:
             # Log de erro é importante em threads para não falhar silenciosamente
             base_name = os.path.basename(result_item.get('input_path', 'unknown_file'))
@@ -504,7 +533,8 @@ class InferenceRunner:
                     future = executor.submit(
                         postprocess_and_save_batch,
                         raw_outputs_cpu, batch_paths, batch_orig_shapes,
-                        (padded_h, padded_w), self.config['output_path'], self.config['mnt_degrees']
+                        (padded_h, padded_w), self.config['output_path'], self.config['mnt_degrees'],
+                        self.config.get('input_base_path')
                     )
                     futures.append(future)
 
@@ -565,7 +595,8 @@ class InferenceRunner:
                             chunk_para_salvar,
                             self.config['output_path'],
                             self.config['mnt_degrees'],
-                            self.rank
+                            self.rank,
+                            self.config.get('input_base_path')
                         )
                         futures.append(future)
                         chunk_para_salvar = []  # Limpa o bloco para o próximo ciclo
@@ -578,7 +609,8 @@ class InferenceRunner:
                     chunk_para_salvar,
                     self.config['output_path'],
                     self.config['mnt_degrees'],
-                    self.rank
+                    self.rank,
+                    self.config.get('input_base_path')
                 )
                 futures.append(future)
 
