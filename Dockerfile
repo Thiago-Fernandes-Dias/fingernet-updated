@@ -26,6 +26,6 @@ RUN pip install \
 
 WORKDIR /workspace/FingerNet
 
-COPY . /workspace/FingerNet
+COPY ./src /workspace/FingerNet
 
-CMD ["bash"]
+CMD ["python", "train_test_deploy.py", "0", "deploy"]

@@ -39,14 +39,40 @@ K.set_session(sess)
 batch_size = 2
 use_multiprocessing = False
 
-train_set = ['../datasets/CISL24218/',]
+train_set = []
 train_sample_rate = None
-test_set = ['../datasets/NISTSD27/',]
-deploy_set = ['../datasets/NISTSD27/images/','../datasets/CISL24218/', \
-            '../datasets/FVC2002DB2A/','../datasets/NIST4/','../datasets/NIST14/']
-pretrain = '../models/released_version/Model.model'
-output_dir = '../datasets/output/'+datetime.now().strftime('%Y%m%d-%H%M%S')
+test_set = []
+deploy_set = [
+    # "/Datasets/FVC/FVC2000/Dbs/Db1_a/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db1_b/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db2_a/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db2_b/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db3_a/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db3_b/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db4_a/",
+    # "/Datasets/FVC/FVC2000/Dbs/Db4_b/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db1_a/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db1_b/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db2_a/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db2_b/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db3_a/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db3_b/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db4_a/",
+    # "/Datasets/FVC/FVC2002/Dbs/Db4_b/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db1_a/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db1_b/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db2_a/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db2_b/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db3_a/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db3_b/",
+    # "/Datasets/FVC/FVC2004/Dbs/Db4_a/",
+    "/Datasets/FVC/FVC2004/Dbs/Db4_b/",
+]
+pretrain = './models/released_version/Model.model'
+output_dir = "/Datasets/FVC/FingerNet_generated_maps"
+
 logging = init_log(output_dir)
+
 copy_file(sys.path[0]+'/'+sys.argv[0], output_dir+'/')
 
 # image normalization
@@ -659,7 +685,7 @@ def deploy(deploy_set, set_name=None):
         ori = sess.run(ori_highest_peak(ori_out_1))                           
         ori = (np.argmax(ori, axis=-1)*2-90)/180.*np.pi  
         time_afterpost = time()
-        mnt_writer(mnt_nms, img_name[i], img_size, "%s/%s/%s.mnt"%(output_dir, set_name, img_name[i]))        
+        mnt_writer(mnt_nms, "%s/%s/%s.xyt"%(output_dir, set_name, img_name[i]))        
         draw_ori_on_img(image, ori, np.ones_like(seg_out), "%s/%s/%s_ori.png"%(output_dir, set_name, img_name[i]))        
         draw_minutiae(image, mnt_nms[:,:3], "%s/%s/%s_mnt.png"%(output_dir, set_name, img_name[i]))
         misc.imsave("%s/%s/%s_enh.png"%(output_dir, set_name, img_name[i]), np.squeeze(enhance_img)*ndimage.zoom(np.round(np.squeeze(seg_out)), [8,8], order=0))
@@ -679,8 +705,9 @@ def main():
         for folder in test_set:
             test([folder,], pretrain, output_dir+"/", test_num=258, draw=False) 
     elif args.mode == 'deploy':
-        for i, folder in enumerate(deploy_set):
-            deploy(folder, str(i))
+        for folder in deploy_set:
+            set_name = folder.strip('/').replace('/', '_')
+            deploy(folder, set_name)
     else:
         pass
 

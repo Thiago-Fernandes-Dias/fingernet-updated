@@ -57,17 +57,21 @@ def mnt_reader(file_name):
     minutiae = []
     for i, line in enumerate(f):
         if i < 2 or len(line) == 0: continue
-        w, h, o = [float(x) for x in line.split()]
-        w, h = int(round(w)), int(round(h))
-        minutiae.append([w, h, o])
+        parts = [float(x) for x in line.split()]
+        w, h = int(round(parts[0])), int(round(parts[1]))
+        o = parts[2]
+        q = parts[3] if len(parts) >= 4 else 0.0
+        minutiae.append([w, h, o, q])
     f.close()
     return minutiae
-def mnt_writer(mnt, image_name, image_size, file_name):
+def mnt_writer(mnt, file_name):
     f = open(file_name, 'w')
-    f.write('%s\n'%(image_name))
-    f.write('%d %d %d\n'%(mnt.shape[0], image_size[0], image_size[1]))
     for i in xrange(mnt.shape[0]):
-        f.write('%d %d %.6f\n'%(mnt[i,0], mnt[i,1], mnt[i,2]))
+        x = int(mnt[i, 0])
+        y = int(mnt[i, 1])
+        tx = int(round(mnt[i, 2] * 90.0 / np.pi))
+        quality = int(round(mnt[i, 3] * 100))
+        f.write('%d %d %d %d\n' % (x, y, tx, quality))
     f.close()
     return
 
