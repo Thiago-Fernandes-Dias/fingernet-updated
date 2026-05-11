@@ -1,4 +1,4 @@
-IMAGE    := fingernet:legacy
+IMAGE    := fingernet:latest
 GPU      := 0
 DATASETS ?= $(PWD)/datasets
 
@@ -9,7 +9,7 @@ build:
 
 run:
 	docker run -it --rm \
-		-v "$(PWD)/models":/workspace/FingerNet/models \
+		-v "$(PWD)/models":/Models \
 		-v "$(DATASETS)":/Datasets \
 		$(IMAGE) \
 		python train_test_deploy.py 0 deploy
@@ -18,14 +18,14 @@ run_gpu:
 	docker run -it --rm \
 		--gpus all \
 		-e CUDA_VISIBLE_DEVICES=$(GPU) \
-		-v "$(PWD)/models":/workspace/FingerNet/models \
+		-v "$(PWD)/models":/Models \
 		-v "$(DATASETS)":/Datasets \
 		$(IMAGE) \
 		python train_test_deploy.py $(GPU) deploy
 
 shell:
 	docker run -it --rm \
-		-v "$(PWD)/models":/workspace/FingerNet/models \
+		-v "$(PWD)/models":/Models \
 		-v "$(DATASETS)":/Datasets \
 		$(IMAGE) \
 		bash
@@ -34,7 +34,7 @@ shell_gpu:
 	docker run -it --rm \
 		--gpus all \
 		-e CUDA_VISIBLE_DEVICES=$(GPU) \
-		-v "$(PWD)/models":/workspace/FingerNet/models \
+		-v "$(PWD)/models":/Models \
 		-v "$(DATASETS)":/Datasets \
 		$(IMAGE) \
 		bash

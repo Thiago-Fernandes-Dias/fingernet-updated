@@ -28,4 +28,4 @@ WORKDIR /workspace/FingerNet
 
 COPY ./src /workspace/FingerNet
 
-CMD ["python", "train_test_deploy.py", "0", "deploy"]
+CMD ["python", "src/train_test_deploy.py", "0", "deploy"]
