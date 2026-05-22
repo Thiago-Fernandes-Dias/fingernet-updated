@@ -2,6 +2,7 @@ import os
 import sys
 import glob
 import shutil
+import struct
 import logging
 import functools
 import matplotlib
@@ -21,7 +22,7 @@ def re_mkdir(path):
     os.makedirs(path)
 
 def init_log(output_dir):
-    re_mkdir(output_dir)
+    # re_mkdir(output_dir)
     logging.basicConfig(level=logging.DEBUG,
         format='%(asctime)s %(message)s',
         datefmt='%Y%m%d-%H:%M:%S',
@@ -64,7 +65,7 @@ def mnt_reader(file_name):
         minutiae.append([w, h, o, q])
     f.close()
     return minutiae
-def mnt_writer(mnt, file_name):
+def mnt_writer_xyt(mnt, file_name):
     f = open(file_name, 'w')
     for i in xrange(mnt.shape[0]):
         x = int(mnt[i, 0])
@@ -74,6 +75,38 @@ def mnt_writer(mnt, file_name):
         f.write('%d %d %d %d\n' % (x, y, tx, quality))
     f.close()
     return
+
+def mnt_writer_iso(mnt, file_name, img_width=0, img_height=0, resolution=197):
+    n_minutiae = min(mnt.shape[0], 255)
+    record_length = 28 + n_minutiae * 6
+    with open(file_name, "wb") as f:
+        f.write(b"FMR\x00")
+        f.write(b"020\x00")
+        f.write(struct.pack(">I", record_length))
+        f.write(struct.pack(">H", 0))
+        f.write(struct.pack(">H", img_width))
+        f.write(struct.pack(">H", img_height))
+        f.write(struct.pack(">H", resolution))
+        f.write(struct.pack(">H", resolution))
+        f.write(struct.pack("B", 1))
+        f.write(struct.pack("B", 0))
+        f.write(struct.pack("B", 0))
+        f.write(struct.pack("B", 0))
+        f.write(struct.pack("B", 0))
+        f.write(struct.pack("B", n_minutiae))
+        for i in xrange(n_minutiae):
+            x = max(0, min(int(round(mnt[i, 0])), 0x3FFF))
+            y = max(0, min(int(round(mnt[i, 1])), 0x3FFF))
+            angle_iso = int(round(mnt[i, 2] % (2 * np.pi) / (2 * np.pi) * 256)) % 256
+            quality = min(int(round(mnt[i, 3] * 100)), 100)
+            x_packed = (0 << 14) | (x & 0x3FFF)
+            y_packed = y & 0x3FFF
+            f.write(struct.pack(">H", x_packed))
+            f.write(struct.pack(">H", y_packed))
+            f.write(struct.pack("B", angle_iso))
+            f.write(struct.pack("B", quality))
+    return
+
 
 def gabor_fn(ksize, sigma, theta, Lambda, psi, gamma):
     sigma_x = sigma
