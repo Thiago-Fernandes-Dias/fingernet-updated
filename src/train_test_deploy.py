@@ -236,9 +236,14 @@ tra_ori_model = get_tra_ori()
 def get_maximum_img_size_and_names(dataset, sample_rate=None):
     if sample_rate is None:
         sample_rate = [1] * len(dataset)
+    logging.info("Gathering dataset images from %d folders", len(dataset))
     img_name, folder_name, img_size = [], [], []
     for folder, rate in zip(dataset, sample_rate):
         _, img_name_t = get_files_in_folder(folder + "images/", ".bmp")
+        if len(img_name_t) == 0:
+            logging.warning("No .bmp images found in %simages/", folder)
+            continue
+        logging.info("Folder %s: %d images (sample rate: %d)", folder, len(img_name_t), rate)
         img_name.extend(img_name_t.tolist() * rate)
         folder_name.extend([folder] * img_name_t.shape[0] * rate)
         img_size.append(
@@ -251,6 +256,11 @@ def get_maximum_img_size_and_names(dataset, sample_rate=None):
     img_size = np.max(np.asarray(img_size), axis=0)
     # let img_size % 8 == 0
     img_size = np.array(np.ceil(img_size / 8) * 8, dtype=np.int32)
+    logging.info(
+        "Dataset preparation complete: %d total samples, maximum image size: %s",
+        len(img_name),
+        tuple(img_size),
+    )
     return img_name, folder_name, img_size
 
 
@@ -313,6 +323,16 @@ def load_data(
         )
     else:
         img_name, folder_name, img_size = dataset
+    total_images = len(img_name)
+    total_batches = int(np.ceil(float(total_images) / batch_size))
+    logging.info(
+        "Loading data: %d images, %d batches (batch_size=%d, rand=%s, aug=%.2f)",
+        total_images,
+        total_batches,
+        batch_size,
+        rand,
+        aug,
+    )
     if rand:
         rand_idx = np.arange(len(img_name))
         np.random.shuffle(rand_idx)
@@ -419,6 +439,7 @@ def load_data(
     if batch_size > 1 and use_multiprocessing == True:
         p.close()
         p.join()
+    logging.info("Data loading finished: %d batches yielded", total_batches)
     return
 
 
@@ -1084,8 +1105,13 @@ def deploy(deploy_set, set_name=None):
     if len(img_name) == 0:
         deploy_set = deploy_set + "images/"
         _, img_name = get_files_in_folder(deploy_set, ".bmp")
+    if len(img_name) == 0:
+        logging.warning("No .bmp images found in %s. Skipping dataset.", deploy_set)
+        return
+    logging.info("Dataset %s: found %d images in %s", set_name, len(img_name), deploy_set)
     img_size = misc.imread(deploy_set + img_name[0] + ".bmp", mode="L").shape
     img_size = np.array(img_size, dtype=np.int32) / 8 * 8
+    logging.info("Dataset %s: target image size set to %s", set_name, tuple(img_size))
     main_net_model = get_main_net((img_size[0], img_size[1], 1), pretrain)
     _, img_name = get_files_in_folder(deploy_set, ".bmp")
     time_c = []
@@ -1166,6 +1192,7 @@ def deploy(deploy_set, set_name=None):
         "Average: load+conv: %.3fs, oir-select+seg-post+nms: %.3f, draw: %.3f"
         % (time_c[0], time_c[1], time_c[2])
     )
+    logging.info("Finished predicting dataset %s (%d images)", set_name, len(img_name))
     return
 
 
@@ -1173,7 +1200,10 @@ def main():
     if args.mode == "train":
         train()
     elif args.mode == "test":
-        for folder in test_set:
+        total_test_folders = len(test_set)
+        logging.info("Starting test mode: %d datasets to test", total_test_folders)
+        for idx, folder in enumerate(test_set):
+            logging.info("Testing dataset [%d/%d]: %s", idx + 1, total_test_folders, folder)
             test(
                 [
                     folder,
@@ -1183,9 +1213,26 @@ def main():
                 test_num=258,
                 draw=False,
             )
+        logging.info("Test mode completed: all %d datasets tested", total_test_folders)
     elif args.mode == "deploy":
-        for ds in deploy_sets:
+        total_deploy_sets = len(deploy_sets)
+        logging.info("Starting deploy mode: %d datasets to process", total_deploy_sets)
+        for idx, ds in enumerate(deploy_sets):
+            logging.info(
+                "Processing dataset [%d/%d]: %s (%s)",
+                idx + 1,
+                total_deploy_sets,
+                ds[1],
+                ds[0],
+            )
             deploy(ds[0], ds[1])
+            logging.info(
+                "Finished dataset [%d/%d]: %s",
+                idx + 1,
+                total_deploy_sets,
+                ds[1],
+            )
+        logging.info("Deploy mode completed: all %d datasets processed", total_deploy_sets)
     else:
         pass
 
